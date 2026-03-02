@@ -3,7 +3,7 @@ Token 数据模型
 
 额度规则:
 - Basic 新号默认 80 配额
-- Super 新号默认 140 配额
+- Super 新号默认 1000 配额
 - 重置后恢复默认值
 - lowEffort 扣 1，highEffort 扣 4
 """
@@ -16,7 +16,7 @@ from datetime import datetime
 
 # 默认配额
 BASIC__DEFAULT_QUOTA = 80
-SUPER_DEFAULT_QUOTA = 140
+SUPER_DEFAULT_QUOTA = 1000
 
 # 失败阈值
 FAIL_THRESHOLD = 5

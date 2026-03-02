@@ -12,6 +12,59 @@
   <link href="/static/common/css/common.css?v=1.5.4" rel="stylesheet">
   <link href="/static/public/css/imagine.css?v=1.5.4" rel="stylesheet">
   <link href="/static/common/css/toast.css" rel="stylesheet">
+  <style>
+    .batch-loading-hint {
+      text-align: center;
+      padding: 2rem;
+      color: var(--accents-5);
+      font-size: 0.875rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .loading-spinner {
+      width: 24px;
+      height: 24px;
+      border: 2px solid var(--accents-2);
+      border-top-color: var(--accents-6);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .status-text.paused {
+      color: #f59e0b;
+    }
+
+    .prompt-title {
+      grid-column: 1 / -1;
+      padding: 1.5rem 1rem;
+      margin: 1rem 0;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--foreground);
+      background: var(--accents-1);
+      border-left: 4px solid var(--accents-6);
+      border-radius: 4px;
+      word-break: break-word;
+    }
+
+    .prompt-title:first-child {
+      margin-top: 0;
+    }
+
+    @media (max-width: 768px) {
+      .prompt-title {
+        font-size: 0.875rem;
+        padding: 1rem 0.75rem;
+      }
+    }
+  </style>
 </head>
 
 <body class="min-h-screen flex flex-col" style="background-color: var(--bg);">
@@ -45,7 +98,7 @@
                     <div class="toggle-desc">滚动到最新</div>
                   </div>
                   <label class="toggle">
-                    <input id="autoScrollToggle" type="checkbox" checked>
+                    <input id="autoScrollToggle" type="checkbox">
                     <span class="toggle-track"></span>
                   </label>
                 </div>
@@ -176,6 +229,10 @@
           <div class="empty-subtitle">启动任务后，生成的图片会自动汇聚到这里</div>
         </div>
         <div id="waterfall" class="waterfall"></div>
+        <div id="batchLoadingHint" class="batch-loading-hint" style="display: none;">
+          <div class="loading-spinner"></div>
+          <div>正在加载更多图片...</div>
+        </div>
       </div>
   </main>
 

@@ -42,6 +42,14 @@
   let streamSequence = 0;
   const streamImageMap = new Map();
   let finalMinBytesDefault = 100000;
+  let batchSize = 12;  // 每批生成数量
+  let currentBatchCount = 0;  // 当前批次已生成数量
+  let isPausedByBatch = false;  // 是否因批次限制而暂停
+  let savedPrompt = '';  // 保存的提示词
+  let savedRatio = '';  // 保存的宽高比
+  let savedConcurrent = 1;  // 保存的并发数
+  let savedNsfw = true;  // 保存的 NSFW 设置
+  let lastPromptTitle = '';  // 上次使用的提示词标题
 
   function toast(message, type) {
     if (typeof showToast === 'function') {
@@ -52,7 +60,7 @@
   function setStatus(state, text) {
     if (!statusText) return;
     statusText.textContent = text || '未连接';
-    statusText.classList.remove('connected', 'connecting', 'error');
+    statusText.classList.remove('connected', 'connecting', 'error', 'paused');
     if (state) {
       statusText.classList.add(state);
     }
@@ -305,6 +313,28 @@
     document.body.removeChild(link);
   }
 
+  function insertPromptTitle(prompt) {
+    if (!waterfall || !prompt) return;
+    
+    const titleElement = document.createElement('div');
+    titleElement.className = 'prompt-title';
+    titleElement.textContent = prompt;
+    
+    if (reverseInsertToggle && reverseInsertToggle.checked) {
+      waterfall.prepend(titleElement);
+    } else {
+      waterfall.appendChild(titleElement);
+    }
+    
+    if (autoScrollToggle && autoScrollToggle.checked) {
+      if (reverseInsertToggle && reverseInsertToggle.checked) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      }
+    }
+  }
+
   function appendImage(base64, meta) {
     if (!waterfall) return;
     if (autoFilterToggle && autoFilterToggle.checked) {
@@ -392,6 +422,9 @@
         downloadImage(base64, filename);
       }
     }
+
+    currentBatchCount++;
+    checkBatchLimit();
   }
 
   function upsertStreamImage(raw, meta, imageId, isFinal) {
@@ -490,6 +523,11 @@
 
       imageCount += 1;
       updateCount(imageCount);
+      // 只在图片完全生成完成时才计入批次
+      if (isFinal) {
+        currentBatchCount++;
+        checkBatchLimit();
+      }
     } else {
       const img = item.querySelector('img');
       if (img) {
@@ -662,10 +700,19 @@
   }
 
   async function startConnection() {
+    if (!isPausedByBatch) {
+      currentBatchCount = 0;
+    }
+    
     const prompt = promptInput ? promptInput.value.trim() : '';
     if (!prompt) {
       toast('请输入提示词', 'error');
       return;
+    }
+
+    if (prompt && prompt !== lastPromptTitle) {
+      insertPromptTitle(prompt);
+      lastPromptTitle = prompt;
     }
 
     const authHeader = await ensurePublicKey();
@@ -806,6 +853,14 @@
   }
 
   async function stopConnection() {
+    isPausedByBatch = false;
+    currentBatchCount = 0;
+    
+    const loadingHint = document.getElementById('batchLoadingHint');
+    if (loadingHint) {
+      loadingHint.style.display = 'none';
+    }
+    
     if (pendingFallbackTimer) {
       clearTimeout(pendingFallbackTimer);
       pendingFallbackTimer = null;
@@ -825,7 +880,93 @@
     setStatus('', '未连接');
   }
 
+  function checkBatchLimit() {
+    if (currentBatchCount >= batchSize && isRunning && !isPausedByBatch) {
+      pauseByBatch();
+    }
+  }
+
+  async function pauseByBatch() {
+    isPausedByBatch = true;
+    
+    savedPrompt = promptInput ? promptInput.value.trim() : '';
+    savedRatio = ratioSelect ? ratioSelect.value : '2:3';
+    savedConcurrent = concurrentSelect ? parseInt(concurrentSelect.value, 10) : 1;
+    savedNsfw = nsfwSelect ? nsfwSelect.value === 'true' : true;
+    
+    const authHeader = await ensurePublicKey();
+    if (authHeader !== null && currentTaskIds.length > 0) {
+      await stopImagineTasks(currentTaskIds, authHeader);
+    }
+    
+    stopAllConnections();
+    currentTaskIds = [];
+    isRunning = false;
+    updateActive();
+    
+    const loadingHint = document.getElementById('batchLoadingHint');
+    if (loadingHint) {
+      loadingHint.style.display = 'none';
+    }
+    
+    setStatus('paused', `已生成 ${currentBatchCount} 张 - 滚动到底部继续`);
+    setButtons(false);
+    
+    if (startBtn) {
+      startBtn.innerHTML = `
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="5 3 19 12 5 21 5 3" />
+        </svg>
+        继续
+      `;
+    }
+    
+    toast(`已生成 ${currentBatchCount} 张图片，滚动到底部查看更多`, 'info');
+  }
+
+  async function resumeByBatch() {
+    if (!isPausedByBatch) return;
+    
+    const loadingHint = document.getElementById('batchLoadingHint');
+    if (loadingHint) {
+      loadingHint.style.display = 'flex';
+    }
+    
+    isPausedByBatch = false;
+    currentBatchCount = 0;
+    
+    if (startBtn) {
+      startBtn.innerHTML = `
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="5 3 19 12 5 21 5 3" />
+        </svg>
+        开始
+      `;
+    }
+    
+    if (promptInput) promptInput.value = savedPrompt;
+    if (ratioSelect) ratioSelect.value = savedRatio;
+    if (concurrentSelect) concurrentSelect.value = String(savedConcurrent);
+    if (nsfwSelect) nsfwSelect.value = savedNsfw ? 'true' : 'false';
+    
+    await startConnection();
+  }
+
+  function isScrolledToBottom() {
+    const threshold = 300;
+    return (window.innerHeight + window.scrollY) >= (document.body.scrollHeight - threshold);
+  }
+
   function clearImages() {
+    isPausedByBatch = false;
+    currentBatchCount = 0;
+    lastPromptTitle = '';
+    
+    const loadingHint = document.getElementById('batchLoadingHint');
+    if (loadingHint) {
+      loadingHint.style.display = 'none';
+    }
+    
     if (waterfall) {
       waterfall.innerHTML = '';
     }
@@ -1250,6 +1391,12 @@
       }
     });
   }
+
+  window.addEventListener('scroll', () => {
+    if (isPausedByBatch && isScrolledToBottom()) {
+      resumeByBatch();
+    }
+  });
 
   // Make floating actions draggable
   const floatingActions = document.getElementById('floatingActions');
