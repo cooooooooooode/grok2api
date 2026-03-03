@@ -714,24 +714,27 @@ class ImageWSStreamProcessor(ImageWSBaseProcessor):
                 )
             else:
                 # Original image_generation format
-                yield self._sse(
-                    "image_generation.completed",
-                    {
-                        "type": "image_generation.completed",
-                        self.response_field: output,
-                        "created_at": int(time.time()),
-                        "size": self.size,
-                        "index": index,
-                        "image_id": image_id,
-                        "stage": "final",
-                        "usage": {
-                            "total_tokens": 0,
-                            "input_tokens": 0,
-                            "output_tokens": 0,
-                            "input_tokens_details": {"text_tokens": 0, "image_tokens": 0},
-                        },
+                message = {
+                    "type": "image_generation.completed",
+                    self.response_field: output,
+                    "created_at": int(time.time()),
+                    "size": self.size,
+                    "index": index,
+                    "image_id": image_id,
+                    "stage": "final",
+                    "usage": {
+                        "total_tokens": 0,
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "input_tokens_details": {"text_tokens": 0, "image_tokens": 0},
                     },
-                )
+                }
+                if "url" in item:
+                    message["url"] = item["url"]
+                    logger.info(f"[DEBUG] Adding URL to message: {item['url']}")
+                else:
+                    logger.warning(f"[DEBUG] No URL in item. Item keys: {list(item.keys())}")
+                yield self._sse("image_generation.completed", message)
 
         if self.chat_format:
             if not self._id_generated:

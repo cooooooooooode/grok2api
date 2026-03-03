@@ -64,6 +64,336 @@
         padding: 1rem 0.75rem;
       }
     }
+
+    /* 图片详情模态框样式 */
+    .image-detail-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 9999;
+      display: none;
+    }
+
+    .modal-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      cursor: pointer;
+    }
+
+    .modal-container {
+      position: relative;
+      width: 90vw;
+      height: 90vh;
+      max-width: 1400px;
+      margin: 5vh auto;
+      background: var(--background);
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .modal-close {
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+      width: 40px;
+      height: 40px;
+      background: var(--accents-2);
+      border: none;
+      border-radius: 50%;
+      font-size: 24px;
+      line-height: 1;
+      color: var(--foreground);
+      cursor: pointer;
+      z-index: 10;
+      transition: all 0.2s;
+    }
+
+    .modal-close:hover {
+      background: var(--accents-3);
+      transform: scale(1.1);
+    }
+
+    .modal-content {
+      flex: 1;
+      display: flex;
+      gap: 0;
+      overflow: hidden;
+    }
+
+    .modal-image-section {
+      flex: 0 0 60%;
+      background: var(--accents-1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+
+    .modal-image-section img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      border-radius: 8px;
+    }
+
+    .modal-info-section {
+      flex: 0 0 40%;
+      padding: 2rem;
+      overflow-y: auto;
+      background: var(--background);
+    }
+
+    .modal-info-section::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .modal-info-section::-webkit-scrollbar-track {
+      background: var(--accents-1);
+      border-radius: 4px;
+    }
+
+    .modal-info-section::-webkit-scrollbar-thumb {
+      background: var(--accents-3);
+      border-radius: 4px;
+    }
+
+    .modal-info-section::-webkit-scrollbar-thumb:hover {
+      background: var(--accents-4);
+    }
+
+    .modal-info-group {
+      margin-bottom: 2rem;
+    }
+
+    .modal-info-title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--accents-5);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.75rem;
+    }
+
+    .modal-prompt-text,
+    .modal-url-text {
+      padding: 1rem;
+      background: var(--accents-1);
+      border-radius: 8px;
+      font-size: 0.875rem;
+      line-height: 1.6;
+      color: var(--foreground);
+      word-break: break-word;
+      margin-bottom: 0.75rem;
+    }
+
+    .modal-metadata {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .metadata-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid var(--accents-2);
+      font-size: 0.875rem;
+    }
+
+    .metadata-label {
+      color: var(--accents-5);
+      font-weight: 500;
+    }
+
+    .metadata-value {
+      color: var(--foreground);
+      font-family: 'Geist Mono', monospace;
+    }
+
+    .modal-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .modal-action-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      background: var(--accents-2);
+      border: 1px solid var(--accents-3);
+      border-radius: 8px;
+      font-size: 0.875rem;
+      color: var(--foreground);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .modal-action-btn:hover {
+      background: var(--accents-3);
+      border-color: var(--accents-4);
+    }
+
+    .modal-action-btn svg {
+      flex-shrink: 0;
+    }
+
+    .modal-action-primary {
+      background: var(--foreground);
+      color: var(--background);
+      border-color: var(--foreground);
+    }
+
+    .modal-action-primary:hover {
+      opacity: 0.9;
+    }
+
+    .modal-navigation {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 2rem;
+      background: var(--accents-1);
+      border-top: 1px solid var(--accents-2);
+    }
+
+    .modal-nav-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.5rem;
+      background: var(--accents-2);
+      border: 1px solid var(--accents-3);
+      border-radius: 8px;
+      font-size: 0.875rem;
+      color: var(--foreground);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .modal-nav-btn:hover:not(:disabled) {
+      background: var(--accents-3);
+      border-color: var(--accents-4);
+    }
+
+    .modal-nav-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .modal-nav-indicator {
+      font-size: 0.875rem;
+      color: var(--accents-5);
+      font-family: 'Geist Mono', monospace;
+    }
+
+    /* 移动端适配 */
+    @media (max-width: 768px) {
+      .modal-container {
+        width: 100vw;
+        height: 100vh;
+        max-width: 100vw;
+        margin: 0;
+        border-radius: 0;
+      }
+      
+      .modal-content {
+        flex-direction: column;
+      }
+      
+      .modal-image-section {
+        flex: 0 0 50%;
+        padding: 1rem;
+      }
+      
+      .modal-info-section {
+        flex: 0 0 50%;
+        padding: 1rem;
+      }
+      
+      .modal-close {
+        top: 0.5rem;
+        right: 0.5rem;
+        width: 36px;
+        height: 36px;
+        font-size: 20px;
+      }
+      
+      .modal-navigation {
+        padding: 0.75rem 1rem;
+      }
+      
+      .modal-nav-btn {
+        padding: 0.5rem 1rem;
+        font-size: 0.75rem;
+      }
+      
+      .modal-nav-btn svg {
+        width: 20px;
+        height: 20px;
+      }
+    }
+
+    /* 扩展功能区域（P1 阶段已启用） */
+    .modal-extended-features {
+    }
+
+    /* 编辑历史样式 */
+    .edit-history-thumbnails {
+      display: flex;
+      gap: 0.5rem;
+      overflow-x: auto;
+      padding: 0.5rem 0;
+    }
+    
+    .edit-history-thumbnail {
+      flex-shrink: 0;
+      width: 80px;
+      height: 80px;
+      border-radius: 8px;
+      overflow: hidden;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: all 0.2s;
+    }
+    
+    .edit-history-thumbnail:hover {
+      border-color: var(--accents-4);
+    }
+    
+    .edit-history-thumbnail.active {
+      border-color: var(--foreground);
+    }
+    
+    .edit-history-thumbnail img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    
+    .edit-history-thumbnails::-webkit-scrollbar {
+      height: 6px;
+    }
+    
+    .edit-history-thumbnails::-webkit-scrollbar-track {
+      background: var(--accents-1);
+      border-radius: 3px;
+    }
+    
+    .edit-history-thumbnails::-webkit-scrollbar-thumb {
+      background: var(--accents-3);
+      border-radius: 3px;
+    }
   </style>
 </head>
 
@@ -292,6 +622,129 @@
     </div>
   </div>
 
+  <!-- 图片详情模态框 -->
+  <div id="imageDetailModal" class="image-detail-modal" style="display: none;">
+    <div class="modal-overlay"></div>
+    <div class="modal-container">
+      <button class="modal-close" aria-label="关闭">×</button>
+      
+      <div class="modal-content">
+        <!-- 左侧：图片预览区域 (60%) -->
+        <div class="modal-image-section">
+          <img id="modalImage" src="" alt="预览图片">
+        </div>
+        
+        <!-- 右侧：信息面板 (40%) -->
+        <div class="modal-info-section">
+          <div class="modal-info-group">
+            <h3 class="modal-info-title">提示词</h3>
+            <div id="modalPrompt" class="modal-prompt-text"></div>
+            <button id="copyPromptBtn" class="modal-action-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              复制提示词
+            </button>
+          </div>
+          
+          <div class="modal-info-group">
+            <h3 class="modal-info-title">Grok URL</h3>
+            <div id="modalGrokUrl" class="modal-url-text"></div>
+            <button id="copyGrokUrlBtn" class="modal-action-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              复制 URL
+            </button>
+          </div>
+          
+          <div class="modal-info-group">
+            <h3 class="modal-info-title">元数据</h3>
+            <div class="modal-metadata">
+              <div class="metadata-item">
+                <span class="metadata-label">序号:</span>
+                <span id="modalSequence" class="metadata-value"></span>
+              </div>
+              <div class="metadata-item">
+                <span class="metadata-label">耗时:</span>
+                <span id="modalElapsedMs" class="metadata-value"></span>
+              </div>
+              <div class="metadata-item">
+                <span class="metadata-label">比例:</span>
+                <span id="modalAspectRatio" class="metadata-value"></span>
+              </div>
+              <div class="metadata-item">
+                <span class="metadata-label">NSFW:</span>
+                <span id="modalNsfw" class="metadata-value"></span>
+              </div>
+              <div class="metadata-item">
+                <span class="metadata-label">Image ID:</span>
+                <span id="modalImageId" class="metadata-value"></span>
+              </div>
+            </div>
+          </div>
+          
+          <div id="modalEditHistory" class="modal-info-group" style="display: none;">
+            <h3 class="modal-info-title">编辑历史</h3>
+            <div id="editHistoryThumbnails" class="edit-history-thumbnails"></div>
+          </div>
+          
+          <div class="modal-info-group">
+            <h3 class="modal-info-title">操作</h3>
+            <div class="modal-actions">
+              <button id="downloadImageBtn" class="modal-action-btn modal-action-primary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                下载图片
+              </button>
+            </div>
+          </div>
+          
+          <div class="modal-info-group modal-extended-features">
+            <h3 class="modal-info-title">图生图</h3>
+            <div class="image-to-image-section">
+              <textarea id="imageToImagePrompt" class="modal-prompt-text" rows="3" placeholder="输入新的提示词..." style="resize: vertical; margin-bottom: 0.75rem;"></textarea>
+              <button id="imageToImageGenerateBtn" class="modal-action-btn modal-action-primary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                  <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                  <polyline points="21 15 16 10 5 21"></polyline>
+                </svg>
+                生成变体
+              </button>
+              <div id="imageToImageLoading" class="image-to-image-loading" style="display: none; margin-top: 0.75rem; text-align: center; color: var(--accents-5); font-size: 0.875rem;">
+                <div class="loading-spinner" style="margin: 0 auto 0.5rem;"></div>
+                <span>生成中...</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 导航按钮 -->
+      <div class="modal-navigation">
+        <button id="modalPrevBtn" class="modal-nav-btn" aria-label="上一张">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+          上一张
+        </button>
+        <span id="modalNavIndicator" class="modal-nav-indicator">1/50</span>
+        <button id="modalNextBtn" class="modal-nav-btn" aria-label="下一张">
+          下一张
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <div id="app-footer"></div>
 
   <script src="/static/common/js/admin-auth.js?v=1.5.4"></script>
@@ -299,7 +752,8 @@
   <script src="/static/common/js/footer.js?v=1.5.4"></script>
   <script src="/static/common/js/toast.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script src="/static/public/js/imagine.js?v=1.5.4"></script>
+  <script src="/static/public/js/imagine-storage.js"></script>
+  <script src="/static/public/js/imagine.js?v=1.5.6"></script>
 </body>
 
 </html>

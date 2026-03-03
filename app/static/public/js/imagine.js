@@ -51,6 +51,71 @@
   let savedNsfw = true;  // 保存的 NSFW 设置
   let lastPromptTitle = '';  // 上次使用的提示词标题
 
+  function restoreImagesFromStorage() {
+    if (typeof imagineStorage !== 'undefined' && waterfall) {
+      const savedImages = imagineStorage.getAllImages();
+      if (savedImages && savedImages.length > 0) {
+        savedImages.forEach(img => {
+          const item = document.createElement('div');
+          item.className = 'waterfall-item';
+
+          const checkbox = document.createElement('div');
+          checkbox.className = 'image-checkbox';
+
+          const imgEl = document.createElement('img');
+          imgEl.loading = 'lazy';
+          imgEl.decoding = 'async';
+          imgEl.alt = img.sequence ? `image-${img.sequence}` : 'image';
+          imgEl.src = img.imageData;
+
+          const metaBar = document.createElement('div');
+          metaBar.className = 'waterfall-meta';
+          const left = document.createElement('div');
+          left.textContent = img.sequence ? `#${img.sequence}` : '#';
+          const rightWrap = document.createElement('div');
+          rightWrap.className = 'meta-right';
+          const status = document.createElement('span');
+          status.className = 'image-status done';
+          status.textContent = '完成';
+          const right = document.createElement('span');
+          if (img.elapsedMs) {
+            right.textContent = `${img.elapsedMs}ms`;
+          } else {
+            right.textContent = '';
+          }
+
+          rightWrap.appendChild(status);
+          rightWrap.appendChild(right);
+          metaBar.appendChild(left);
+          metaBar.appendChild(rightWrap);
+
+          item.appendChild(checkbox);
+          item.appendChild(imgEl);
+          item.appendChild(metaBar);
+
+          item.dataset.imageUrl = img.imageData;
+          item.dataset.prompt = img.prompt || 'image';
+          item.dataset.storageId = img.id;
+
+          if (isSelectionMode) {
+            item.classList.add('selection-mode');
+          }
+
+          waterfall.appendChild(item);
+          
+          imageCount += 1;
+          streamSequence = Math.max(streamSequence, img.sequence || 0);
+        });
+        
+        updateCount(imageCount);
+        
+        if (emptyState) {
+          emptyState.style.display = 'none';
+        }
+      }
+    }
+  }
+
   function toast(message, type) {
     if (typeof showToast === 'function') {
       showToast(message, type);
@@ -390,6 +455,22 @@
     const prompt = (meta && meta.prompt) ? String(meta.prompt) : (promptInput ? promptInput.value.trim() : '');
     item.dataset.imageUrl = dataUrl;
     item.dataset.prompt = prompt || 'image';
+    
+    // Save to storage
+    if (typeof imagineStorage !== 'undefined') {
+      const storageId = imagineStorage.addImage({
+        prompt: prompt,
+        grokUrl: meta && meta.url ? meta.url : '',
+        imageData: dataUrl,
+        imageId: meta && meta.image_id ? meta.image_id : '',
+        aspectRatio: ratioSelect ? ratioSelect.value : '2:3',
+        elapsedMs: meta && meta.elapsed_ms ? meta.elapsed_ms : 0,
+        nsfw: nsfwSelect ? nsfwSelect.value === 'true' : false,
+        sequence: meta && meta.sequence ? meta.sequence : 0
+      });
+      item.dataset.storageId = storageId;
+    }
+    
     if (isSelectionMode) {
       item.classList.add('selection-mode');
     }
@@ -523,6 +604,33 @@
 
       imageCount += 1;
       updateCount(imageCount);
+      
+      // 保存到 storage
+      if (typeof imagineStorage !== 'undefined') {
+        if (!item.dataset.storageId) {
+          // 第一次保存（预览图）
+          const storageId = imagineStorage.addImage({
+            prompt: prompt,
+            grokUrl: meta && meta.url ? meta.url : '',
+            imageData: dataUrl,
+            imageId: imageId || '',
+            aspectRatio: ratioSelect ? ratioSelect.value : '2:3',
+            elapsedMs: meta && meta.elapsed_ms ? meta.elapsed_ms : 0,
+            nsfw: nsfwSelect ? nsfwSelect.value === 'true' : false,
+            sequence: sequence
+          });
+          item.dataset.storageId = storageId;
+        } else if (isFinal) {
+          // 更新为最终图（高清图 + Grok URL）
+          imagineStorage.updateImage(item.dataset.storageId, {
+            grokUrl: meta && meta.url ? meta.url : '',
+            imageData: dataUrl,
+            imageId: imageId || '',
+            elapsedMs: meta && meta.elapsed_ms ? meta.elapsed_ms : 0
+          });
+        }
+      }
+      
       // 只在图片完全生成完成时才计入批次
       if (isFinal) {
         currentBatchCount++;
@@ -970,6 +1078,12 @@
     if (waterfall) {
       waterfall.innerHTML = '';
     }
+    
+    // Clear storage
+    if (typeof imagineStorage !== 'undefined') {
+      imagineStorage.clear();
+    }
+    
     streamImageMap.clear();
     streamSequence = 0;
     imageCount = 0;
@@ -1007,6 +1121,7 @@
   }
 
   loadFilterDefaults();
+  restoreImagesFromStorage();
 
   if (ratioSelect) {
     ratioSelect.addEventListener('change', () => {
@@ -1284,25 +1399,18 @@
   }
   
   
-  // Handle image/checkbox clicks in waterfall
   if (waterfall) {
     waterfall.addEventListener('click', (e) => {
       const item = e.target.closest('.waterfall-item');
       if (!item) return;
       
       if (isSelectionMode) {
-        // In selection mode, clicking anywhere on the item toggles selection
         toggleImageSelection(item);
       } else {
-        // In normal mode, only clicking the image opens lightbox
         if (e.target.closest('.waterfall-item img')) {
-          const img = e.target.closest('.waterfall-item img');
-          const images = getAllImages();
-          const index = images.indexOf(img);
-          
-          if (index !== -1) {
-            updateLightbox(index);
-            lightbox.classList.add('active');
+          const storageId = item.dataset.storageId;
+          if (storageId) {
+            openImageModal(storageId);
           }
         }
       }
@@ -1446,6 +1554,385 @@
         floatingActions.releasePointerCapture(e.pointerId);
         floatingActions.classList.remove('shadow-xl');
       }
+    });
+  }
+
+  const modal = document.getElementById('imageDetailModal');
+  const modalOverlay = modal?.querySelector('.modal-overlay');
+  const modalClose = modal?.querySelector('.modal-close');
+  const modalImage = document.getElementById('modalImage');
+  const modalPrevBtn = document.getElementById('modalPrevBtn');
+  const modalNextBtn = document.getElementById('modalNextBtn');
+  const modalNavIndicator = document.getElementById('modalNavIndicator');
+  const copyPromptBtn = document.getElementById('copyPromptBtn');
+  const copyGrokUrlBtn = document.getElementById('copyGrokUrlBtn');
+  const downloadImageBtn = document.getElementById('downloadImageBtn');
+  
+  let currentModalImageId = null;
+  let allModalImages = [];
+  
+  function openImageModal(storageId) {
+    if (!modal || typeof imagineStorage === 'undefined') return;
+    
+    const imageData = imagineStorage.getImage(storageId);
+    if (!imageData) return;
+    
+    allModalImages = imagineStorage.getAllImages();
+    const currentIndex = allModalImages.findIndex(img => img.id === storageId);
+    if (currentIndex === -1) return;
+    
+    currentModalImageId = storageId;
+    
+    if (modalImage) modalImage.src = imageData.imageData;
+    const modalPrompt = document.getElementById('modalPrompt');
+    const modalGrokUrl = document.getElementById('modalGrokUrl');
+    const modalSequence = document.getElementById('modalSequence');
+    const modalElapsedMs = document.getElementById('modalElapsedMs');
+    const modalAspectRatio = document.getElementById('modalAspectRatio');
+    const modalNsfw = document.getElementById('modalNsfw');
+    const modalImageId = document.getElementById('modalImageId');
+    
+    if (modalPrompt) modalPrompt.textContent = imageData.prompt || '无';
+    if (modalGrokUrl) modalGrokUrl.textContent = imageData.grokUrl || '无';
+    if (modalSequence) modalSequence.textContent = imageData.sequence || '-';
+    if (modalElapsedMs) modalElapsedMs.textContent = imageData.elapsedMs ? `${imageData.elapsedMs}ms` : '-';
+    if (modalAspectRatio) modalAspectRatio.textContent = imageData.aspectRatio || '-';
+    if (modalNsfw) modalNsfw.textContent = imageData.nsfw ? '是' : '否';
+    if (modalImageId) modalImageId.textContent = imageData.imageId || '-';
+    
+    const imageToImagePrompt = document.getElementById('imageToImagePrompt');
+    if (imageToImagePrompt) {
+      imageToImagePrompt.value = imageData.prompt || '';
+    }
+    
+    if (modalNavIndicator) {
+      modalNavIndicator.textContent = `${currentIndex + 1}/${allModalImages.length}`;
+    }
+    
+    if (modalPrevBtn) modalPrevBtn.disabled = currentIndex === 0;
+    if (modalNextBtn) modalNextBtn.disabled = currentIndex === allModalImages.length - 1;
+    
+    const modalEditHistory = document.getElementById('modalEditHistory');
+    const editHistoryThumbnails = document.getElementById('editHistoryThumbnails');
+    
+    if (modalEditHistory && editHistoryThumbnails) {
+      let historyImages = [];
+      
+      if (imageData.edits && imageData.edits.length > 0) {
+        historyImages.push(imageData);
+        imageData.edits.forEach(editId => {
+          const editImage = imagineStorage.getImage(editId);
+          if (editImage) historyImages.push(editImage);
+        });
+      }
+      else if (imageData.parentId) {
+        const parent = imagineStorage.getImage(imageData.parentId);
+        if (parent) {
+          historyImages.push(parent);
+          if (parent.edits && parent.edits.length > 0) {
+            parent.edits.forEach(editId => {
+              const editImage = imagineStorage.getImage(editId);
+              if (editImage) historyImages.push(editImage);
+            });
+          }
+        }
+      }
+      
+      if (historyImages.length > 1) {
+        editHistoryThumbnails.innerHTML = '';
+        historyImages.forEach(img => {
+          const thumb = document.createElement('div');
+          thumb.className = 'edit-history-thumbnail';
+          if (img.id === storageId) {
+            thumb.classList.add('active');
+          }
+          
+          const thumbImg = document.createElement('img');
+          thumbImg.src = img.imageData;
+          thumbImg.alt = 'thumbnail';
+          thumb.appendChild(thumbImg);
+          
+          thumb.addEventListener('click', () => {
+            openImageModal(img.id);
+          });
+          
+          editHistoryThumbnails.appendChild(thumb);
+        });
+        
+        modalEditHistory.style.display = 'block';
+      } else {
+        modalEditHistory.style.display = 'none';
+      }
+    }
+    
+    modal.style.display = 'block';
+  }
+  
+  function closeImageModal() {
+    if (!modal) return;
+    modal.style.display = 'none';
+    currentModalImageId = null;
+  }
+  
+  function navigateModal(direction) {
+    if (!currentModalImageId || allModalImages.length === 0) return;
+    
+    const currentIndex = allModalImages.findIndex(img => img.id === currentModalImageId);
+    if (currentIndex === -1) return;
+    
+    let newIndex = currentIndex;
+    if (direction === 'prev' && currentIndex > 0) {
+      newIndex = currentIndex - 1;
+    } else if (direction === 'next' && currentIndex < allModalImages.length - 1) {
+      newIndex = currentIndex + 1;
+    }
+    
+    if (newIndex !== currentIndex) {
+      openImageModal(allModalImages[newIndex].id);
+    }
+  }
+  
+  if (modalClose) modalClose.addEventListener('click', closeImageModal);
+  if (modalOverlay) modalOverlay.addEventListener('click', closeImageModal);
+  if (modalPrevBtn) modalPrevBtn.addEventListener('click', () => navigateModal('prev'));
+  if (modalNextBtn) modalNextBtn.addEventListener('click', () => navigateModal('next'));
+  
+  document.addEventListener('keydown', (e) => {
+    if (modal?.style.display === 'block') {
+      if (e.key === 'Escape') closeImageModal();
+      else if (e.key === 'ArrowLeft') navigateModal('prev');
+      else if (e.key === 'ArrowRight') navigateModal('next');
+    }
+  });
+  
+  if (copyPromptBtn) {
+    copyPromptBtn.addEventListener('click', async () => {
+      const prompt = document.getElementById('modalPrompt')?.textContent;
+      if (prompt && prompt !== '无') {
+        try {
+          await navigator.clipboard.writeText(prompt);
+          toast('提示词已复制', 'success');
+        } catch (err) {
+          toast('复制失败', 'error');
+        }
+      }
+    });
+  }
+  
+  if (copyGrokUrlBtn) {
+    copyGrokUrlBtn.addEventListener('click', async () => {
+      const url = document.getElementById('modalGrokUrl')?.textContent;
+      if (url && url !== '无') {
+        try {
+          await navigator.clipboard.writeText(url);
+          toast('URL 已复制', 'success');
+        } catch (err) {
+          toast('复制失败', 'error');
+        }
+      }
+    });
+  }
+  
+  if (downloadImageBtn) {
+    downloadImageBtn.addEventListener('click', () => {
+      if (!currentModalImageId) return;
+      const imageData = imagineStorage.getImage(currentModalImageId);
+      if (!imageData) return;
+      
+      const a = document.createElement('a');
+      a.href = imageData.imageData;
+      a.download = `imagine_${imageData.sequence}_${Date.now()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      toast('图片已下载', 'success');
+    });
+  }
+  
+  const imageToImageGenerateBtn = document.getElementById('imageToImageGenerateBtn');
+  const imageToImagePrompt = document.getElementById('imageToImagePrompt');
+  const imageToImageLoading = document.getElementById('imageToImageLoading');
+  
+  if (imageToImageGenerateBtn) {
+    imageToImageGenerateBtn.addEventListener('click', async () => {
+      if (!currentModalImageId) return;
+      
+      const imageData = imagineStorage.getImage(currentModalImageId);
+      if (!imageData) return;
+      
+      const prompt = imageToImagePrompt ? imageToImagePrompt.value.trim() : '';
+      if (!prompt) {
+        toast('请输入提示词', 'error');
+        return;
+      }
+      
+      const grokUrl = imageData.grokUrl;
+      if (!grokUrl) {
+        toast('当前图片缺少 Grok URL，无法进行图生图', 'error');
+        return;
+      }
+      
+      const authHeader = await ensurePublicKey();
+      if (authHeader === null) {
+        toast('请先配置 Public Key', 'error');
+        return;
+      }
+      
+      imageToImageGenerateBtn.disabled = true;
+      if (imageToImageLoading) imageToImageLoading.style.display = 'block';
+      
+      try {
+        const aspectRatio = imageData.aspectRatio || '2:3';
+        const nsfw = imageData.nsfw || false;
+        
+        const response = await fetch('/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': authHeader
+          },
+          body: JSON.stringify({
+            model: 'grok-imagine-1.0-edit',
+            messages: [{
+              role: 'user',
+              content: [
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: grokUrl
+                  }
+                },
+                {
+                  type: 'text',
+                  text: prompt
+                }
+              ]
+            }],
+            image_config: {
+              n: 1,
+              size: aspectRatio,
+              response_format: 'url'
+            }
+          })
+        });
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(errorText || '生成失败');
+        }
+        
+        const data = await response.json();
+        const choice = data.choices && data.choices[0];
+        if (!choice || !choice.message || !choice.message.content) {
+          throw new Error('响应格式错误');
+        }
+        
+        const content = choice.message.content;
+        let newGrokUrl = '';
+        let newImageData = '';
+        let newImageId = '';
+        
+        if (typeof content === 'string') {
+          try {
+            const parsed = JSON.parse(content);
+            newGrokUrl = parsed.url || '';
+            newImageData = parsed.b64_json ? `data:image/png;base64,${parsed.b64_json}` : '';
+            newImageId = parsed.image_id || '';
+          } catch (e) {
+            newGrokUrl = content;
+          }
+        } else if (Array.isArray(content)) {
+          for (const item of content) {
+            if (item.type === 'image_url' && item.image_url) {
+              newGrokUrl = item.image_url.url || '';
+            }
+          }
+        }
+        
+        if (!newGrokUrl && !newImageData) {
+          throw new Error('未获取到生成的图片');
+        }
+        
+        if (newGrokUrl && !newImageData) {
+          const imgResponse = await fetch(newGrokUrl);
+          const blob = await imgResponse.blob();
+          const reader = new FileReader();
+          await new Promise((resolve, reject) => {
+            reader.onloadend = () => {
+              newImageData = reader.result;
+              resolve();
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        }
+        
+        const newId = imagineStorage.addEdit(currentModalImageId, {
+          prompt: prompt,
+          grokUrl: newGrokUrl,
+          imageData: newImageData,
+          imageId: newImageId,
+          aspectRatio: aspectRatio,
+          elapsedMs: 0,
+          nsfw: nsfw,
+          sequence: imageCount + 1
+        });
+        
+        if (!newId) {
+          throw new Error('保存图片失败');
+        }
+        
+        const base64 = newImageData.split(',')[1] || newImageData;
+        appendImage(base64, {
+          prompt: prompt,
+          url: newGrokUrl,
+          image_id: newImageId,
+          elapsed_ms: 0,
+          sequence: imageCount
+        });
+        
+        toast('图生图生成成功', 'success');
+        
+        setTimeout(() => {
+          openImageModal(newId);
+        }, 100);
+        
+      } catch (error) {
+        console.error('Image-to-image generation failed:', error);
+        toast(error.message || '图生图生成失败', 'error');
+      } finally {
+        imageToImageGenerateBtn.disabled = false;
+        if (imageToImageLoading) imageToImageLoading.style.display = 'none';
+      }
+    });
+  }
+  
+  const generateVideoBtn = document.getElementById('generateVideoBtn');
+  
+  if (generateVideoBtn) {
+    generateVideoBtn.addEventListener('click', () => {
+      if (!currentModalImageId) return;
+      
+      const imageData = imagineStorage.getImage(currentModalImageId);
+      if (!imageData) return;
+      
+      const grokUrl = imageData.grokUrl;
+      if (!grokUrl) {
+        toast('当前图片缺少 Grok URL，无法生成视频', 'error');
+        return;
+      }
+      
+      const prompt = imageData.prompt || '';
+      
+      // 构造 URL 参数
+      const params = new URLSearchParams();
+      params.set('image', grokUrl);
+      if (prompt) {
+        params.set('prompt', prompt);
+      }
+      
+      // 跳转到 video 页面
+      window.location.href = `/video?${params.toString()}`;
     });
   }
 })();

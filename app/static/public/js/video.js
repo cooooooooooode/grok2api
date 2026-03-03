@@ -636,5 +636,20 @@
     });
   }
 
+  // 读取 URL 参数并自动填充
+  const urlParams = new URLSearchParams(window.location.search);
+  const imageParam = urlParams.get('image');
+  const promptParam = urlParams.get('prompt');
+  
+  // 自动填充参考图片 URL
+  if (imageParam && imageUrlInput) {
+    imageUrlInput.value = decodeURIComponent(imageParam);
+  }
+  
+  // 自动填充提示词
+  if (promptParam && promptInput) {
+    promptInput.value = decodeURIComponent(promptParam);
+  }
+
   updateMeta();
 })();
