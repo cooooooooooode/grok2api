@@ -42,7 +42,7 @@ class ImagineWebSocketReverse:
         return blob_size >= final_min_bytes
 
     def _classify_image(self, url: str, blob: str, final_min_bytes: int, medium_min_bytes: int) -> Optional[Dict[str, object]]:
-        if not url or not blob:
+        if not blob:
             return None
 
         image_id, ext = self._parse_image_url(url)
@@ -55,6 +55,8 @@ class ImagineWebSocketReverse:
             if is_final
             else ("medium" if blob_size > medium_min_bytes else "preview")
         )
+        
+        logger.info(f"[CLASSIFY] image_id={image_id}, stage={stage}, blob_size={blob_size}, url={'YES' if url else 'NO'}")
 
         return {
             "type": "image",
@@ -202,7 +204,10 @@ class ImagineWebSocketReverse:
             error_code = (
                 "rate_limit_exceeded" if status == 429 else "connection_failed"
             )
-            logger.error(f"WebSocket connect failed: {e}")
+            if status == 429:
+                logger.error(f"[429_ERROR] WebSocket connect got 429 from Grok API: {e}, status={status}")
+            else:
+                logger.error(f"WebSocket connect failed: {e}, status={status}")
             yield {
                 "type": "error",
                 "error_code": error_code,
@@ -257,8 +262,13 @@ class ImagineWebSocketReverse:
                         msg_type = msg.get("type")
 
                         if msg_type == "image":
+                            # Debug: log raw WebSocket message
+                            msg_url = msg.get("url", "")
+                            msg_blob_len = len(msg.get("blob", ""))
+                            logger.info(f"[WS_RAW] type=image, url={msg_url[:100] if msg_url else 'EMPTY'}, blob_len={msg_blob_len}")
+                            
                             info = self._classify_image(
-                                msg.get("url", ""),
+                                msg_url,
                                 msg.get("blob", ""),
                                 final_min_bytes,
                                 medium_min_bytes,

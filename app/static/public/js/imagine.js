@@ -608,10 +608,12 @@
       // 保存到 storage
       if (typeof imagineStorage !== 'undefined') {
         if (!item.dataset.storageId) {
+          const grokUrl = meta && meta.url ? meta.url : '';
+          console.log('[DEBUG] First save - grokUrl:', grokUrl, 'meta:', meta);
           // 第一次保存（预览图）
           const storageId = imagineStorage.addImage({
             prompt: prompt,
-            grokUrl: meta && meta.url ? meta.url : '',
+            grokUrl: grokUrl,
             imageData: dataUrl,
             imageId: imageId || '',
             aspectRatio: ratioSelect ? ratioSelect.value : '2:3',
@@ -621,9 +623,11 @@
           });
           item.dataset.storageId = storageId;
         } else if (isFinal) {
+          const grokUrl = meta && meta.url ? meta.url : '';
+          console.log('[DEBUG] Final update - grokUrl:', grokUrl, 'meta:', meta);
           // 更新为最终图（高清图 + Grok URL）
           imagineStorage.updateImage(item.dataset.storageId, {
-            grokUrl: meta && meta.url ? meta.url : '',
+            grokUrl: grokUrl,
             imageData: dataUrl,
             imageId: imageId || '',
             elapsedMs: meta && meta.elapsed_ms ? meta.elapsed_ms : 0
@@ -645,6 +649,18 @@
       const right = item.querySelector('.waterfall-meta .meta-right span:last-child');
       if (right && meta && meta.elapsed_ms) {
         right.textContent = `${meta.elapsed_ms}ms`;
+      }
+      
+      // 更新 storage（如果是最终图）
+      if (isFinal && item.dataset.storageId && typeof imagineStorage !== 'undefined') {
+        const grokUrl = meta && meta.url ? meta.url : '';
+        console.log('[DEBUG] Final update (existing item) - grokUrl:', grokUrl, 'meta:', meta);
+        imagineStorage.updateImage(item.dataset.storageId, {
+          grokUrl: grokUrl,
+          imageData: dataUrl,
+          imageId: imageId || '',
+          elapsedMs: meta && meta.elapsed_ms ? meta.elapsed_ms : 0
+        });
       }
     }
 
@@ -690,6 +706,14 @@
         return;
       }
       const isFinal = data.type === 'image_generation.completed' || data.stage === 'final';
+      if (isFinal) {
+        console.log('[DEBUG] Final image received:', {
+          imageId: imageId,
+          hasUrl: !!data.url,
+          url: data.url,
+          dataKeys: Object.keys(data)
+        });
+      }
       upsertStreamImage(payload, data, imageId, isFinal);
     } else if (data.type === 'image') {
       imageCount += 1;
@@ -1567,9 +1591,14 @@
   const copyPromptBtn = document.getElementById('copyPromptBtn');
   const copyGrokUrlBtn = document.getElementById('copyGrokUrlBtn');
   const downloadImageBtn = document.getElementById('downloadImageBtn');
+  const carouselLeftBtn = modal?.querySelector('.carousel-arrow-left');
+  const carouselRightBtn = modal?.querySelector('.carousel-arrow-right');
+  const carouselIndicator = modal?.querySelector('.carousel-indicator');
   
   let currentModalImageId = null;
   let allModalImages = [];
+  let carouselImages = [];
+  let currentCarouselIndex = 0;
   
   function openImageModal(storageId) {
     if (!modal || typeof imagineStorage === 'undefined') return;
@@ -1583,27 +1612,38 @@
     
     currentModalImageId = storageId;
     
-    if (modalImage) modalImage.src = imageData.imageData;
-    const modalPrompt = document.getElementById('modalPrompt');
-    const modalGrokUrl = document.getElementById('modalGrokUrl');
-    const modalSequence = document.getElementById('modalSequence');
-    const modalElapsedMs = document.getElementById('modalElapsedMs');
-    const modalAspectRatio = document.getElementById('modalAspectRatio');
-    const modalNsfw = document.getElementById('modalNsfw');
-    const modalImageId = document.getElementById('modalImageId');
-    
-    if (modalPrompt) modalPrompt.textContent = imageData.prompt || '无';
-    if (modalGrokUrl) modalGrokUrl.textContent = imageData.grokUrl || '无';
-    if (modalSequence) modalSequence.textContent = imageData.sequence || '-';
-    if (modalElapsedMs) modalElapsedMs.textContent = imageData.elapsedMs ? `${imageData.elapsedMs}ms` : '-';
-    if (modalAspectRatio) modalAspectRatio.textContent = imageData.aspectRatio || '-';
-    if (modalNsfw) modalNsfw.textContent = imageData.nsfw ? '是' : '否';
-    if (modalImageId) modalImageId.textContent = imageData.imageId || '-';
-    
-    const imageToImagePrompt = document.getElementById('imageToImagePrompt');
-    if (imageToImagePrompt) {
-      imageToImagePrompt.value = imageData.prompt || '';
+    // 构建轮播图数组：父图 + 所有子图
+    carouselImages = [];
+    if (imageData.edits && imageData.edits.length > 0) {
+      // 当前图是父图，包含子图
+      carouselImages.push(imageData);
+      imageData.edits.forEach(editId => {
+        const editImage = imagineStorage.getImage(editId);
+        if (editImage) carouselImages.push(editImage);
+      });
+    } else if (imageData.parentId) {
+      // 当前图是子图，获取父图和所有兄弟图
+      const parent = imagineStorage.getImage(imageData.parentId);
+      if (parent) {
+        carouselImages.push(parent);
+        if (parent.edits && parent.edits.length > 0) {
+          parent.edits.forEach(editId => {
+            const editImage = imagineStorage.getImage(editId);
+            if (editImage) carouselImages.push(editImage);
+          });
+        }
+      }
+    } else {
+      // 单图，无编辑历史
+      carouselImages.push(imageData);
     }
+    
+    // 找到当前图片在轮播图中的索引
+    currentCarouselIndex = carouselImages.findIndex(img => img.id === storageId);
+    if (currentCarouselIndex === -1) currentCarouselIndex = 0;
+    
+    // 更新轮播图显示
+    updateCarousel();
     
     if (modalNavIndicator) {
       modalNavIndicator.textContent = `${currentIndex + 1}/${allModalImages.length}`;
@@ -1668,6 +1708,67 @@
     modal.style.display = 'block';
   }
   
+  function updateCarousel() {
+    if (!carouselImages || carouselImages.length === 0) return;
+    
+    const currentImage = carouselImages[currentCarouselIndex];
+    if (!currentImage) return;
+    
+    if (modalImage) {
+      modalImage.style.opacity = '0';
+      setTimeout(() => {
+        modalImage.src = currentImage.imageData;
+        modalImage.style.opacity = '1';
+      }, 150);
+    }
+    
+    if (carouselIndicator) {
+      carouselIndicator.textContent = `${currentCarouselIndex + 1}/${carouselImages.length}`;
+    }
+    
+    if (carouselLeftBtn) {
+      carouselLeftBtn.disabled = carouselImages.length <= 1;
+    }
+    if (carouselRightBtn) {
+      carouselRightBtn.disabled = carouselImages.length <= 1;
+    }
+    
+    const modalPrompt = document.getElementById('modalPrompt');
+    const modalGrokUrl = document.getElementById('modalGrokUrl');
+    const modalSequence = document.getElementById('modalSequence');
+    const modalElapsedMs = document.getElementById('modalElapsedMs');
+    const modalAspectRatio = document.getElementById('modalAspectRatio');
+    const modalNsfw = document.getElementById('modalNsfw');
+    const modalImageId = document.getElementById('modalImageId');
+    
+    if (modalPrompt) modalPrompt.textContent = currentImage.prompt || '无';
+    if (modalGrokUrl) modalGrokUrl.textContent = currentImage.grokUrl || '无';
+    if (modalSequence) modalSequence.textContent = currentImage.sequence || '-';
+    if (modalElapsedMs) modalElapsedMs.textContent = currentImage.elapsedMs ? `${currentImage.elapsedMs}ms` : '-';
+    if (modalAspectRatio) modalAspectRatio.textContent = currentImage.aspectRatio || '-';
+    if (modalNsfw) modalNsfw.textContent = currentImage.nsfw ? '是' : '否';
+    if (modalImageId) modalImageId.textContent = currentImage.imageId || '-';
+    
+    const imageToImagePrompt = document.getElementById('imageToImagePrompt');
+    if (imageToImagePrompt) {
+      imageToImagePrompt.value = currentImage.prompt || '';
+    }
+    
+    currentModalImageId = currentImage.id;
+  }
+  
+  function navigateCarousel(direction) {
+    if (!carouselImages || carouselImages.length <= 1) return;
+    
+    if (direction === 'prev') {
+      currentCarouselIndex = (currentCarouselIndex - 1 + carouselImages.length) % carouselImages.length;
+    } else if (direction === 'next') {
+      currentCarouselIndex = (currentCarouselIndex + 1) % carouselImages.length;
+    }
+    
+    updateCarousel();
+  }
+  
   function closeImageModal() {
     if (!modal) return;
     modal.style.display = 'none';
@@ -1697,11 +1798,14 @@
   if (modalPrevBtn) modalPrevBtn.addEventListener('click', () => navigateModal('prev'));
   if (modalNextBtn) modalNextBtn.addEventListener('click', () => navigateModal('next'));
   
+  if (carouselLeftBtn) carouselLeftBtn.addEventListener('click', () => navigateCarousel('prev'));
+  if (carouselRightBtn) carouselRightBtn.addEventListener('click', () => navigateCarousel('next'));
+  
   document.addEventListener('keydown', (e) => {
     if (modal?.style.display === 'block') {
       if (e.key === 'Escape') closeImageModal();
-      else if (e.key === 'ArrowLeft') navigateModal('prev');
-      else if (e.key === 'ArrowRight') navigateModal('next');
+      else if (e.key === 'ArrowLeft') navigateCarousel('prev');
+      else if (e.key === 'ArrowRight') navigateCarousel('next');
     }
   });
   
@@ -1785,7 +1889,16 @@
         const aspectRatio = imageData.aspectRatio || '2:3';
         const nsfw = imageData.nsfw || false;
         
-        const response = await fetch('/v1/chat/completions', {
+        const sizeMap = {
+          '1:1': '1024x1024',
+          '2:3': '1024x1792',
+          '3:2': '1792x1024',
+          '9:16': '720x1280',
+          '16:9': '1280x720'
+        };
+        const size = sizeMap[aspectRatio] || '1024x1792';
+        
+        const response = await fetch('/v1/public/chat/completions', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1810,8 +1923,8 @@
             }],
             image_config: {
               n: 1,
-              size: aspectRatio,
-              response_format: 'url'
+              size: size,
+              response_format: 'base64'
             }
           })
         });
@@ -1821,30 +1934,35 @@
           throw new Error(errorText || '生成失败');
         }
         
-        const data = await response.json();
-        const choice = data.choices && data.choices[0];
-        if (!choice || !choice.message || !choice.message.content) {
-          throw new Error('响应格式错误');
-        }
-        
-        const content = choice.message.content;
+        // 处理 SSE 流式响应
+        const text = await response.text();
+        const lines = text.split('\n');
         let newGrokUrl = '';
         let newImageData = '';
         let newImageId = '';
         
-        if (typeof content === 'string') {
-          try {
-            const parsed = JSON.parse(content);
-            newGrokUrl = parsed.url || '';
-            newImageData = parsed.b64_json ? `data:image/png;base64,${parsed.b64_json}` : '';
-            newImageId = parsed.image_id || '';
-          } catch (e) {
-            newGrokUrl = content;
-          }
-        } else if (Array.isArray(content)) {
-          for (const item of content) {
-            if (item.type === 'image_url' && item.image_url) {
-              newGrokUrl = item.image_url.url || '';
+        // 解析 SSE 流
+        for (const line of lines) {
+          if (line.startsWith('data: ') && !line.includes('[DONE]')) {
+            try {
+              const jsonStr = line.substring(6);
+              const data = JSON.parse(jsonStr);
+              const content = data.choices?.[0]?.delta?.content;
+              
+              if (content) {
+                const match = content.match(/!\[image\]\(((?:https:\/\/[^)]+|data:image\/[^)]+))\)/);
+                if (match) {
+                  const url = match[1];
+                  if (url.startsWith('data:')) {
+                    newImageData = url;
+                  } else {
+                    newGrokUrl = url;
+                  }
+                  break;
+                }
+              }
+            } catch (e) {
+              continue;
             }
           }
         }

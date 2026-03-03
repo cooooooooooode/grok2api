@@ -40,7 +40,12 @@ def rate_limited(error: Exception) -> bool:
         return False
     status = error.details.get("status") if error.details else None
     code = error.details.get("error_code") if error.details else None
-    return status == 429 or code == "rate_limit_exceeded"
+    is_rate_limited = status == 429 or code == "rate_limit_exceeded"
+    
+    if is_rate_limited:
+        logger.warning(f"[429_DETECTED] Rate limit detected: status={status}, code={code}, error={error}")
+    
+    return is_rate_limited
 
 
 def transient_upstream(error: Exception) -> bool:

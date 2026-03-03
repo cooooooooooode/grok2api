@@ -844,158 +844,90 @@ class TokenManager:
 
     async def refresh_cooling_tokens(self) -> Dict[str, int]:
         """
-        批量刷新 cooling 状态的 Token 配额
+        批量刷新 cooling 状态的 Token
+
+        新逻辑：
+        - 只检查 cooling 状态的 token
+        - 如果距离上次同步超过 5 分钟，调用 Grok API 验证 token 是否可用
+        - 验证成功：恢复为 active
+        - 验证失败（429）：保持 cooling，更新 last_sync_at
 
         Returns:
             {"checked": int, "refreshed": int, "recovered": int, "expired": int}
         """
-        # 收集需要刷新的 token
-        to_refresh: List[tuple[str, TokenInfo]] = []
-        for pool in self.pools.values():
-            if pool.name == SUPER_POOL_NAME:
-                interval_hours = get_config(
-                    "token.super_refresh_interval_hours",
-                    DEFAULT_SUPER_REFRESH_INTERVAL_HOURS,
-                )
-            else:
-                interval_hours = get_config(
-                    "token.refresh_interval_hours",
-                    DEFAULT_REFRESH_INTERVAL_HOURS,
-                )
-            for token in pool:
-                if token.need_refresh(interval_hours):
-                    to_refresh.append((pool.name, token))
-
-        if not to_refresh:
-            logger.debug("Refresh check: no tokens need refresh")
-            return {"checked": 0, "refreshed": 0, "recovered": 0, "expired": 0}
-
-        logger.info(f"Refresh check: found {len(to_refresh)} cooling tokens to refresh")
-
-        # 批量并发刷新
-        semaphore = asyncio.Semaphore(DEFAULT_REFRESH_CONCURRENCY)
-        usage_service = UsageService()
-        refreshed = 0
+        from datetime import datetime
+        
+        cooling_tokens: List[tuple[str, TokenInfo]] = []
         recovered = 0
-        expired = 0
-
-        async def _refresh_one(item: tuple[str, TokenInfo]) -> dict:
-            """刷新单个 token"""
-            _, token_info = item
-            async with semaphore:
-                token_str = token_info.token
-                if token_str.startswith("sso="):
-                    token_str = token_str[4:]
-
-                # 重试逻辑：最多 2 次重试
-                for retry in range(3):  # 0, 1, 2
-                    try:
-                        result = await usage_service.get(token_str)
-
-                        if result and "remainingTokens" in result:
-                            new_quota = result.get("remainingTokens")
-                            if new_quota is None:
-                                new_quota = result.get("remainingQueries")
-                            if new_quota is None:
-                                return {"recovered": False, "expired": False}
-                            old_quota = token_info.quota
-                            old_status = token_info.status
-
-                            token_info.update_quota(new_quota)
-                            token_info.mark_synced()
-
-                            window_size = self._extract_window_size_seconds(result)
-                            if window_size is not None:
-                                current_pool = self.get_pool_name_for_token(token_info.token)
-                                if (
-                                    current_pool == SUPER_POOL_NAME
-                                    and window_size >= SUPER_WINDOW_THRESHOLD_SECONDS
-                                ):
-                                    self._move_token_pool(
-                                        token_info,
-                                        SUPER_POOL_NAME,
-                                        BASIC_POOL_NAME,
-                                        reason=f"windowSizeSeconds={window_size}",
-                                    )
-                                elif (
-                                    current_pool == BASIC_POOL_NAME
-                                    and window_size < SUPER_WINDOW_THRESHOLD_SECONDS
-                                ):
-                                    self._move_token_pool(
-                                        token_info,
-                                        BASIC_POOL_NAME,
-                                        SUPER_POOL_NAME,
-                                        reason=f"windowSizeSeconds={window_size}",
-                                    )
-
-                            logger.info(
-                                f"Token {token_info.token[:10]}...: refreshed "
-                                f"{old_quota} -> {new_quota}, status: {old_status} -> {token_info.status}"
-                            )
-
-                            return {
-                                "recovered": new_quota > 0 and old_quota == 0,
-                                "expired": False,
-                            }
-
-                        return {"recovered": False, "expired": False}
-
-                    except Exception as e:
-                        error_str = str(e)
-
-                        # 检查是否为 401 错误
-                        if "401" in error_str or "Unauthorized" in error_str:
-                            if retry < 2:
-                                logger.warning(
-                                    f"Token {token_info.token[:10]}...: 401 error, "
-                                    f"retry {retry + 1}/2..."
-                                )
-                                await asyncio.sleep(0.5)
-                                continue
-                            else:
-                                # 重试 2 次后仍然 401，标记为 expired
-                                logger.error(
-                                    f"Token {token_info.token[:10]}...: 401 after 2 retries, "
-                                    f"marking as expired"
-                                )
-                                token_info.status = TokenStatus.EXPIRED
-                                return {"recovered": False, "expired": True}
-                        else:
-                            logger.warning(
-                                f"Token {token_info.token[:10]}...: refresh failed ({e})"
-                            )
-                            return {"recovered": False, "expired": False}
-
-                return {"recovered": False, "expired": False}
-
-        # 批量处理
-        for i in range(0, len(to_refresh), DEFAULT_REFRESH_BATCH_SIZE):
-            batch = to_refresh[i : i + DEFAULT_REFRESH_BATCH_SIZE]
-            results = await asyncio.gather(*[_refresh_one(t) for t in batch])
-            refreshed += len(batch)
-            recovered += sum(r["recovered"] for r in results)
-            expired += sum(r["expired"] for r in results)
-
-            # 批次间延迟
-            if i + DEFAULT_REFRESH_BATCH_SIZE < len(to_refresh):
-                await asyncio.sleep(1)
-
-        for pool_name, token_info in to_refresh:
-            current_pool = self.get_pool_name_for_token(token_info.token) or pool_name
-            self._track_token_change(token_info, current_pool, "state")
-        await self._save(force=True)
-
+        
+        for pool in self.pools.values():
+            for token in pool:
+                if token.status == TokenStatus.COOLING:
+                    cooling_tokens.append((pool.name, token))
+        
+        if not cooling_tokens:
+            logger.debug("Refresh check: no cooling tokens")
+            return {"checked": 0, "refreshed": 0, "recovered": 0, "expired": 0}
+        
+        logger.info(f"Refresh check: found {len(cooling_tokens)} cooling tokens")
+        
+        now = int(datetime.now().timestamp() * 1000)
+        refresh_interval_ms = 5 * 60 * 1000
+        
+        for pool_name, token_info in cooling_tokens:
+            should_check = False
+            
+            if token_info.last_sync_at is None:
+                should_check = True
+            else:
+                elapsed_ms = now - token_info.last_sync_at
+                if elapsed_ms >= refresh_interval_ms:
+                    should_check = True
+            
+            if should_check:
+                # 验证 token 是否可用
+                try:
+                    success = await self.sync_usage(
+                        token_info.token,
+                        consume_on_fail=False,
+                        is_usage=False
+                    )
+                    if success:
+                        # 验证成功，sync_usage 已更新配额，手动恢复为 active
+                        token_info.status = TokenStatus.ACTIVE
+                        self._track_token_change(token_info, pool_name, "state")
+                        recovered += 1
+                        logger.info(
+                            f"Token {token_info.token[:10]}...: validation passed, recovered to active"
+                        )
+                    else:
+                        # 验证失败，继续冷却
+                        token_info.last_sync_at = now
+                        self._track_token_change(token_info, pool_name, "usage")
+                        logger.warning(
+                            f"Token {token_info.token[:10]}...: validation failed, continue cooling"
+                        )
+                except Exception as e:
+                    # 网络错误或其他异常，继续冷却
+                    token_info.last_sync_at = now
+                    self._track_token_change(token_info, pool_name, "usage")
+                    logger.warning(
+                        f"Token {token_info.token[:10]}...: validation error ({e}), continue cooling"
+                    )
+        
+        if recovered > 0 or len(cooling_tokens) > 0:
+            await self._save(force=True)
+        
         logger.info(
             f"Refresh completed: "
-            f"checked={len(to_refresh)}, refreshed={refreshed}, "
-            f"recovered={recovered}, expired={expired}"
+            f"checked={len(cooling_tokens)}, recovered={recovered}"
         )
-
+        
         return {
-            "checked": len(to_refresh),
-            "refreshed": refreshed,
+            "checked": len(cooling_tokens),
+            "refreshed": 0,
             "recovered": recovered,
-            "expired": expired,
+            "expired": 0,
         }
 
 

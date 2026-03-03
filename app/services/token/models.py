@@ -16,7 +16,7 @@ from datetime import datetime
 
 # 默认配额
 BASIC__DEFAULT_QUOTA = 80
-SUPER_DEFAULT_QUOTA = 1000
+SUPER_DEFAULT_QUOTA = 200
 
 # 失败阈值
 FAIL_THRESHOLD = 5
@@ -85,8 +85,11 @@ class TokenInfo(BaseModel):
         Returns:
             实际扣除的配额
         """
+        from app.core.logger import logger
+        
         cost = EFFORT_COST[effort]
         actual_cost = min(cost, self.quota)
+        old_quota = self.quota
 
         self.last_used_at = int(datetime.now().timestamp() * 1000)
         self.use_count += actual_cost  # 使用 actual_cost 避免配额不足时过度计数
@@ -95,11 +98,7 @@ class TokenInfo(BaseModel):
         # 注意：不在这里清零 fail_count，只有 record_success() 才清零
         # 这样可以避免失败后调用 consume 导致失败计数被重置
 
-        if self.quota == 0:
-            self.status = TokenStatus.COOLING
-        elif self.status == TokenStatus.COOLING:
-            # 只从 COOLING 恢复，不从 EXPIRED 恢复
-            self.status = TokenStatus.ACTIVE
+        logger.info(f"[QUOTA_CONSUME] Token {self.token[:10]}... consumed {actual_cost} (effort={effort.value}), quota {old_quota} -> {self.quota}, status={self.status.value}")
 
         return actual_cost
 
@@ -110,15 +109,12 @@ class TokenInfo(BaseModel):
         Args:
             new_quota: 新的配额值
         """
+        from app.core.logger import logger
+        
+        old_quota = self.quota
         self.quota = max(0, new_quota)
 
-        if self.quota == 0:
-            self.status = TokenStatus.COOLING
-        elif self.quota > 0 and self.status in [
-            TokenStatus.COOLING,
-            TokenStatus.EXPIRED,
-        ]:
-            self.status = TokenStatus.ACTIVE
+        logger.info(f"[QUOTA_UPDATE] Token {self.token[:10]}... updated quota {old_quota} -> {self.quota}, status={self.status.value}")
 
     def reset(self, default_quota: Optional[int] = None):
         """重置配额到默认值"""
@@ -148,7 +144,7 @@ class TokenInfo(BaseModel):
             self.status = TokenStatus.EXPIRED
 
     def record_success(self, is_usage: bool = True):
-        """记录成功，清空失败计数并根据配额更新状态"""
+        """记录成功，清空失败计数"""
         self.fail_count = 0
         self.last_fail_at = None
         self.last_fail_reason = None
@@ -156,11 +152,6 @@ class TokenInfo(BaseModel):
         if is_usage:
             self.use_count += 1
             self.last_used_at = int(datetime.now().timestamp() * 1000)
-
-        if self.quota == 0:
-            self.status = TokenStatus.COOLING
-        else:
-            self.status = TokenStatus.ACTIVE
 
     def need_refresh(self, interval_hours: int = 8) -> bool:
         """检查是否需要刷新配额"""

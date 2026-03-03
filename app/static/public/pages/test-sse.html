@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test SSE Messages</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        #log { white-space: pre-wrap; background: #f5f5f5; padding: 10px; }
+        button { padding: 10px 20px; font-size: 16px; }
+    </style>
+</head>
+<body>
+    <h1>Test Grok Imagine SSE Messages</h1>
+    <button onclick="startTest()">Start Test</button>
+    <button onclick="clearLog()">Clear Log</button>
+    <div id="log"></div>
+    
+    <script>
+    let es = null;
+    
+    function log(msg) {
+        const div = document.getElementById('log');
+        const timestamp = new Date().toISOString().split('T')[1].slice(0, -1);
+        div.textContent += `[${timestamp}] ${msg}\n`;
+        console.log(msg);
+    }
+    
+    function clearLog() {
+        document.getElementById('log').textContent = '';
+    }
+    
+    function startTest() {
+        if (es) {
+            es.close();
+        }
+        
+        clearLog();
+        log('Starting SSE connection...');
+        
+        const url = '/v1/public/imagine/sse?prompt=a cute cat&aspect_ratio=1:1&t=' + Date.now();
+        es = new EventSource(url);
+        
+        es.onopen = () => {
+            log('SSE connection opened');
+        };
+        
+        es.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                log('Message type: ' + data.type);
+                
+                if (data.type === 'image_generation.completed') {
+                    log('FINAL IMAGE RECEIVED:');
+                    log('  - image_id: ' + data.image_id);
+                    log('  - has url field: ' + ('url' in data));
+                    log('  - url value: ' + (data.url || 'EMPTY'));
+                    log('  - all keys: ' + Object.keys(data).join(', '));
+                    log('Full data: ' + JSON.stringify(data, null, 2));
+                }
+                
+                if (data.type === 'status' && data.status === 'stopped') {
+                    log('Generation stopped');
+                    es.close();
+                }
+            } catch (e) {
+                log('Parse error: ' + e.message);
+            }
+        };
+        
+        es.onerror = (e) => {
+            log('SSE error');
+            es.close();
+        };
+    }
+    </script>
+</body>
+</html>

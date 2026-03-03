@@ -50,6 +50,9 @@ class UsageService:
                 async with session_ctx as session:
                     response = await RateLimitsReverse.request(session, token)
                 data = response.json()
+                
+                logger.info(f"[GROK_API_RESPONSE] Token {token[:10]}... response: {data}")
+                
                 remaining = data.get("remainingTokens")
                 if remaining is None:
                     remaining = data.get("remainingQueries")
@@ -61,7 +64,6 @@ class UsageService:
                 return data
 
             except Exception:
-                # 最后一次失败已经被记录
                 raise
 
 

@@ -10,7 +10,7 @@ from app.core.auth import verify_public_key
 
 router = APIRouter()
 
-router.include_router(chat_router, dependencies=[Depends(verify_public_key)])
+router.include_router(chat_router)
 router.include_router(imagine_router)
 router.include_router(video_router)
 router.include_router(voice_router)

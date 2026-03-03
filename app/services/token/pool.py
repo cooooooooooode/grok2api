@@ -3,6 +3,7 @@
 import random
 from typing import Dict, List, Optional, Iterator, Set
 
+from app.core.logger import logger
 from app.services.token.models import TokenInfo, TokenStatus, TokenPoolStats
 
 
@@ -40,31 +41,38 @@ class TokenPool:
             exclude: 需要排除的 token 字符串集合
             prefer_tags: 优先选择包含这些 tag 的 token（若存在则仅在其子集中选择）
         """
-        # 选择 token
+        all_tokens = list(self._tokens.values())
+        logger.info(f"[TOKEN_SELECT] Pool={self.name}, Total tokens={len(all_tokens)}")
+        
+        for t in all_tokens:
+            logger.info(f"[TOKEN_SELECT]   - {t.token[:10]}... status={t.status.value}, quota={t.quota}, tags={t.tags}")
+        
         available = [
             t
-            for t in self._tokens.values()
+            for t in all_tokens
             if t.status == TokenStatus.ACTIVE and t.quota > 0
             and (not exclude or t.token not in exclude)
         ]
 
+        logger.info(f"[TOKEN_SELECT] Available tokens after filter: {len(available)}")
+        
         if not available:
+            logger.warning(f"[TOKEN_SELECT] No available tokens in pool {self.name}")
             return None
 
-        # 优先选带指定标签的 token（若存在）
         if prefer_tags:
             preferred = [t for t in available if prefer_tags.issubset(set(t.tags or []))]
             if preferred:
                 available = preferred
+                logger.info(f"[TOKEN_SELECT] Filtered by tags {prefer_tags}: {len(available)} tokens")
 
-        # 找到最大额度
         max_quota = max(t.quota for t in available)
-
-        # 筛选最大额度
         candidates = [t for t in available if t.quota == max_quota]
-
-        # 随机选择
-        return random.choice(candidates)
+        
+        selected = random.choice(candidates)
+        logger.info(f"[TOKEN_SELECT] Selected token: {selected.token[:10]}... quota={selected.quota}")
+        
+        return selected
 
     def count(self) -> int:
         """Token 数量"""
